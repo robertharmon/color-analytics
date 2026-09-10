@@ -1,0 +1,28 @@
+# Core Analytics & Computer Vision
+# Note: torch, torchvision, numpy, and cupy are installed separately in Dockerfile
+ultralytics>=8.0.0
+opencv-python>=4.8.0
+Pillow>=10.0.0
+scikit-image>=0.21.0
+scikit-learn>=1.3.0
+scipy>=1.11.0
+
+# Color Science & Optimal Transport
+colormath>=3.0.0
+colour-science>=0.4.0
+POT>=0.9.0
+
+# Database
+psycopg2-binary>=2.9.0
+
+# Visualization
+plotly>=5.17.0
+kaleido>=0.2.1
+dash>=2.14.0
+pandas>=2.1.0
+
+# Utilities
+tqdm>=4.66.0
+
+# Fast agglomerative clustering (float32-native linkage, added S137 2026-08-31 to mirror old-code migration in production/build_ciede2000_clusters.py)
+fastcluster>=1.2.0

@@ -1,0 +1,25 @@
+services:
+  pipeline:
+    build:
+      context: .
+      dockerfile: Dockerfile # Points to the Dockerfile in this directory
+    image: color-analytics:latest
+    volumes:
+      - ./:/app # Mounts this project directory into the container's /app
+      # Product image store. Sibling to 02_scripts/, two levels up from this repo root.
+      - ../../03_images:/app/images
+    environment:
+      DB_HOST: host.docker.internal # For connecting to a database on the host machine
+      DB_PORT: "5432"
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in host env before docker compose run}
+      IMAGE_DIR: "/app/images" # Matches the bind mount above; tools' IMAGE_DIR candidate lists find the mount without per-invocation -e
+      PYTHONUNBUFFERED: "1" # Ensures Python output is unbuffered
+      PYTHONIOENCODING: "utf-8" # Sets character encoding
+    # Example command — override for your needs, e.g.
+    #   docker compose run pipeline python cli.py consolidate-colors nike --gender mens
+    command: ["python", "cli.py", "list"]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu] # Ensures the container has GPU access

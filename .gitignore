@@ -1,0 +1,54 @@
+# --- Python ---
+__pycache__/
+*.pyc
+*.pyo
+*.log
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# --- Editor / IDE ---
+.vscode/
+.idea/
+*.swp
+
+# --- OS junk ---
+.DS_Store
+Thumbs.db
+
+# --- Secrets ---
+.env
+.env.*
+
+# --- Data exports (large, regenerable) ---
+*.csv
+schema.sql
+
+# --- Generated outputs (large, regenerable) ---
+# Every slice (and the merge-rule tuner) writes rendered deliverables +
+# intermediate CSVs to an outputs/ dir. Match at any depth.
+outputs/
+
+# --- Data store (raw + segmented images, large / external) ---
+images/
+
+# --- Model weights (large, downloaded/trained separately) ---
+data_prep/weights/
+*.pt
+*.pth
+*.onnx
+*.weights
+*.safetensors
+*.h5
+*.bin
+
+# Ignore stray pickles, but the RF zone model IS a tracked first-class artifact.
+*.pkl
+!palette_explorer/rf_zone_model.pkl
+
+# --- Claude Code / agent leftovers ---
+.claude/
+tmpclaude-*-cwd
+nul

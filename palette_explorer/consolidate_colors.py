@@ -268,7 +268,19 @@ def export_results(results_df, centroids_df, dominant_df, labels, baseline,
 # MAIN
 # =============================================================================
 
-def main(brand=None, gender=None):
+def main(brand=None, gender=None, archive_limit=None):
+    # Also accept --archive-limit N when invoked through the CLI dispatcher,
+    # which routes brand/gender as kwargs but leaves other flags in sys.argv.
+    import argparse
+    _p = argparse.ArgumentParser(add_help=False)
+    _p.add_argument('--archive-limit', type=int, default=None,
+                    help='Cap the DB read to the N most recent archives per brand '
+                         '(default: use all archives). Guard against >20 GB memory '
+                         'in the fastcluster linkage step for very large brands.')
+    _known, _ = _p.parse_known_args()
+    if _known.archive_limit is not None:
+        archive_limit = _known.archive_limit
+
     brand = brand or BRAND_DEFAULT
     gender = gender or GENDER_DEFAULT
 
@@ -278,9 +290,14 @@ def main(brand=None, gender=None):
     print(f"  Threshold: {CLUSTER_THRESHOLD} ΔE₀₀")
     print(f"  Min products/cluster: {MIN_PRODUCTS_PER_CLUSTER}")
     print(f"  FDR α: {FDR_ALPHA}")
+    if archive_limit is not None:
+        print(f"  Archive scope: most recent {archive_limit} archives (--archive-limit)")
+    else:
+        print(f"  Archive scope: all archives (default)")
 
     # Build the cluster structure (clustering runs once, in-memory)
-    dominant_df, labels, n_clusters, centroids_df, timings = build_clusters(brand, gender)
+    dominant_df, labels, n_clusters, centroids_df, timings = build_clusters(
+        brand, gender, archive_limit=archive_limit)
 
     # Compute baseline
     baseline = compute_baseline(dominant_df)
@@ -334,5 +351,10 @@ if __name__ == '__main__':
                         help=f'Brand to analyze (default: {BRAND_DEFAULT})')
     parser.add_argument('--gender', default=None,
                         help=f'Gender filter (default: {GENDER_DEFAULT})')
+    parser.add_argument('--archive-limit', type=int, default=None,
+                        help='Cap the DB read to the N most recent archives per '
+                             'brand (default: all archives). Use to keep the '
+                             'fastcluster linkage step under 20 GB for very '
+                             'large brands.')
     args = parser.parse_args()
-    main(brand=args.brand, gender=args.gender)
+    main(brand=args.brand, gender=args.gender, archive_limit=args.archive_limit)

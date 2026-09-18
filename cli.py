@@ -63,10 +63,10 @@ REGISTRY = {
     'archetype-validation':        ('archetype_taxonomy.validation.build_archetype_validator:main', 'Advanced: render the labeling tool from an existing sample JSON', 'Archetype', False),
 
     # --- Palette explorer (flagship) ---
-    'consolidate-colors':        ('palette_explorer.consolidate_colors:main', 'Group products into pure color clusters (CIEDE2000) + per-cluster discount FDR', 'Palette Explorer', False),
+    'consolidate-colors':        ('palette_explorer.consolidate_colors:main', 'Group products into pure color clusters (CIEDE2000) + per-cluster discount FDR (use --archive-limit N to cap DB read to N most recent archives)', 'Palette Explorer', False),
     'build-zones':               ('palette_explorer.build_zones:main', 'Manual zone builder -> cluster_zone_builder.html', 'Palette Explorer', False),
     'assign-zones':              ('palette_explorer.assign_zones:main', 'Propagate zones to other brands (RF)', 'Palette Explorer', False),
-    'palette-explorer':          ('palette_explorer.palette_explorer:main', 'Build the flagship -> palette_explorer.html', 'Palette Explorer', False),
+    'palette-explorer':          ('palette_explorer.palette_explorer:main', 'Build the flagship -> palette_explorer.html (use --recent N for a small hostable sample)', 'Palette Explorer', False),
     'tune-hue-family-rows':      ('palette_explorer.tune_hue_family_rows:main', 'Calibrate the a*b* hue-family row radius', 'Palette Explorer', False),
     'review-cluster-quality':    ('palette_explorer.quality.review_cluster_quality:main', 'Interactive click-to-flag cluster review', 'Palette Explorer QA', False),
 

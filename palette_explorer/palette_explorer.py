@@ -11,6 +11,12 @@ View modes:
   - Discount Frequency: diverging heatmap of freq deviation from baseline
   - Discount Depth: diverging heatmap of depth deviation from baseline
   - Price Level: diverging heatmap of price deviation from baseline
+
+Usage:
+  python cli.py palette-explorer              # full build (all archives)
+  python cli.py palette-explorer --recent 3   # sample build: 3 most recent archives
+                                              # per brand-gender, thumbs copied into
+                                              # outputs/sample_recent3/  (hostable bundle)
 """
 
 import json
@@ -114,6 +120,12 @@ def load_cluster_summary(path):
 
 
 def load_zones(path):
+    # INVARIANT (unenforced): the cluster IDs inside this file must reference
+    # the cluster IDs in the sibling cluster_summary.csv — i.e., both files must
+    # come from the same `consolidate-colors` run. If consolidate-colors re-ran
+    # without also re-running build-zones (Nike Mens) or assign-zones (others),
+    # this file is stale and the flagship will render nonsense zones. See
+    # CLAUDE.md § "Cluster-ID coherence" for the recovery playbook.
     with open(path, 'r') as f:
         return json.load(f)['zones']
 
@@ -151,6 +163,98 @@ def load_product_assignments(path):
                 'price_std': price_std,
             })
     return assignments
+
+
+def load_assignments_full(path):
+    """Read product_assignments.csv fully — every row, every field we need for
+    the sample-mode recompute. Used only when `--recent N` is active."""
+    rows = []
+    if not os.path.exists(path):
+        return rows
+    with open(path, 'r') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            try:
+                archive_id = int(row['archive_id'])
+                cluster_id = int(row['cluster_id'])
+                instance_id = int(row['instance_id'])
+            except (ValueError, TypeError, KeyError):
+                continue
+            try:
+                price_std = float(row['price_std']) if row.get('price_std') else 0.0
+            except (ValueError, TypeError):
+                price_std = 0.0
+            is_disc = row.get('is_discounted', '').lower() == 'true'
+            try:
+                depth = float(row['discount_depth']) if row.get('discount_depth') else None
+            except (ValueError, TypeError):
+                depth = None
+            rows.append({
+                'archive_id': archive_id,
+                'cluster_id': cluster_id,
+                'instance_id': instance_id,
+                'price_std': price_std,
+                'is_discounted': is_disc,
+                'discount_depth': depth,
+            })
+    return rows
+
+
+def pick_recent_archive_ids(archive_dates, n):
+    """Return the N most recent archive_ids from {archive_id: 'YYYY-MM-DD'}."""
+    if not archive_dates or n <= 0:
+        return set()
+    ordered = sorted(archive_dates.items(), key=lambda kv: kv[1], reverse=True)
+    return {aid for aid, _ in ordered[:n]}
+
+
+def recompute_cluster_and_baseline(full_assignments):
+    """From a filtered list of full assignment rows, recompute per-cluster
+    counts and the overall baseline discount stats — replaces the all-time
+    numbers pulled from cluster_summary.csv + run_metadata.csv when sampling.
+
+    Returns (cluster_overrides, baseline_overrides):
+        cluster_overrides: {cluster_id: {'n_products', 'n_discounted',
+                                         'depth_pct', 'n_discounted_depth'}}
+        baseline_overrides: {'baseline_freq_pct', 'baseline_depth_pct'}
+    """
+    per_cluster = {}
+    total_n = 0
+    total_disc = 0
+    depth_sum_all = 0.0
+    depth_n_all = 0
+    for row in full_assignments:
+        cid = row['cluster_id']
+        c = per_cluster.setdefault(cid, {
+            'n_products': 0, 'n_discounted': 0,
+            'depth_sum': 0.0, 'depth_n': 0,
+        })
+        c['n_products'] += 1
+        total_n += 1
+        if row['is_discounted']:
+            c['n_discounted'] += 1
+            total_disc += 1
+            if row['discount_depth'] is not None:
+                c['depth_sum'] += row['discount_depth']
+                c['depth_n'] += 1
+                depth_sum_all += row['discount_depth']
+                depth_n_all += 1
+
+    cluster_overrides = {}
+    for cid, c in per_cluster.items():
+        depth_pct = (c['depth_sum'] / c['depth_n']) if c['depth_n'] > 0 else None
+        cluster_overrides[cid] = {
+            'n_products': c['n_products'],
+            'n_discounted': c['n_discounted'],
+            'depth_pct': depth_pct,
+            'n_discounted_depth': c['depth_n'],
+        }
+
+    baseline_overrides = {
+        'baseline_freq_pct': (total_disc / total_n * 100) if total_n > 0 else 0.0,
+        'baseline_depth_pct': (depth_sum_all / depth_n_all) if depth_n_all > 0 else 0.0,
+    }
+    return cluster_overrides, baseline_overrides
 
 
 def load_archive_dates(brand_name):
@@ -236,8 +340,13 @@ def compute_temporal_data(zones, assignments_path, archive_dates):
     return temporal
 
 
-def load_brand_data(name, slug, output_dir, radius=5):
-    """Load all data for one brand and return a dict."""
+def load_brand_data(name, slug, output_dir, radius=5, recent_n=None):
+    """Load all data for one brand and return a dict.
+
+    When `recent_n` is set, restrict everything (per-cluster counts, baseline,
+    thumbs, temporal, prices) to products from the N most recent archives of
+    this brand. Also returns `sample_info` describing what was filtered.
+    """
     summary_path = os.path.join(output_dir, 'cluster_summary.csv')
     zones_path = os.path.join(output_dir, 'cluster_zones.json')
     metadata_path = os.path.join(output_dir, 'run_metadata.csv')
@@ -247,20 +356,93 @@ def load_brand_data(name, slug, output_dir, radius=5):
     clusters = load_cluster_summary(summary_path)
     zones = load_zones(zones_path)
     baseline = load_run_metadata(metadata_path)
+    brand_name = slug.split('_')[0]  # 'nike_mens' -> 'nike'
+    archive_dates = load_archive_dates(brand_name)
+
+    sample_info = None
+    eligible_iids_by_cluster = None
+    filtered_assignments_full = None
+
+    if recent_n is not None:
+        # Load assignments first so we can restrict "recent" to archives that
+        # actually have rows here — the DB's archive table can be ahead of
+        # what's been re-processed into product_assignments.csv.
+        full_rows = load_assignments_full(assignments_path)
+        present_ids = {r['archive_id'] for r in full_rows}
+        available_dates = ({aid: d for aid, d in archive_dates.items() if aid in present_ids}
+                           if archive_dates else None)
+        if not available_dates:
+            print(f"    WARNING: no dated archives present in {assignments_path}; "
+                  f"cannot sample. Falling back to unsampled data for this brand.")
+            recent_ids = set()
+        else:
+            recent_ids = pick_recent_archive_ids(available_dates, recent_n)
+        filtered_assignments_full = [r for r in full_rows if r['archive_id'] in recent_ids]
+
+        # Overwrite the all-time counts with recomputed sample-window values.
+        cluster_overrides, baseline_overrides = recompute_cluster_and_baseline(
+            filtered_assignments_full)
+        for cid, over in cluster_overrides.items():
+            if cid in clusters:
+                clusters[cid].update(over)
+        # Any cluster with no sampled products has stale counts — zero them out.
+        for cid, c in clusters.items():
+            if cid not in cluster_overrides:
+                c.update(n_products=0, n_discounted=0,
+                         depth_pct=None, n_discounted_depth=0)
+        baseline.update(baseline_overrides)
+
+        # Build eligible thumbnail set from filtered assignments.
+        eligible_iids_by_cluster = {}
+        for r in filtered_assignments_full:
+            eligible_iids_by_cluster.setdefault(r['cluster_id'], set()).add(r['instance_id'])
+
+        # Drop zones whose clusters all have zero sampled products — otherwise
+        # they render as tiny black dots (fake L=0/a=0/b=0 centroid) and
+        # pollute delta-E radius selection since they all pile up at (0,0,0).
+        zones = [z for z in zones
+                 if any(clusters.get(cid, {}).get('n_products', 0) > 0
+                        for cid in z['cluster_ids'])]
+
+        sample_info = {
+            'recent_n': recent_n,
+            'recent_archive_ids': sorted(recent_ids),
+            'archive_date_range': [
+                min((archive_dates[a] for a in recent_ids), default=None),
+                max((archive_dates[a] for a in recent_ids), default=None),
+            ],
+            'n_products_sampled': len(filtered_assignments_full),
+            'n_zones_kept': len(zones),
+        }
+
     centroids = compute_zone_centroids(zones, clusters)
     zone_stats = compute_zone_discount_stats(zones, clusters, baseline)
+    # Thumbnails are pre-curated at build_zones time (~10 per cluster) as
+    # representative exemplars, not a random sample of every product. Even in
+    # `--recent N` mode we show these curated exemplars: zone counts, colors,
+    # stats and temporal all reflect the sampled window, but thumbnails act as
+    # "here's what this color cluster looks like." Filtering by iid would leave
+    # most zones empty because the curated 10 rarely intersect a small window.
     zone_thumbs = scan_thumbnails(thumb_dir, zones, clusters)
 
-    # Price analysis from product assignments
-    assignments = load_product_assignments(assignments_path)
+    # Price analysis from product assignments (filter to sampled window if set).
+    if filtered_assignments_full is not None:
+        assignments = [{'cluster_id': r['cluster_id'], 'price_std': r['price_std']}
+                       for r in filtered_assignments_full if r['price_std'] > 0]
+    else:
+        assignments = load_product_assignments(assignments_path)
     all_prices = [a['price_std'] for a in assignments]
     baseline_price = sum(all_prices) / len(all_prices) if all_prices else 0
     zone_price_stats = compute_zone_price_stats(zones, assignments, baseline_price)
 
-    # Temporal data
-    brand_name = slug.split('_')[0]  # 'nike_mens' -> 'nike'
-    archive_dates = load_archive_dates(brand_name)
-    temporal_data = compute_temporal_data(zones, assignments_path, archive_dates)
+    # Temporal data — filter dates dict to sampled window in sample mode so
+    # only the sampled months appear in the timeline.
+    if recent_n is not None and archive_dates:
+        temporal_dates = {aid: d for aid, d in archive_dates.items()
+                          if aid in sample_info['recent_archive_ids']}
+    else:
+        temporal_dates = archive_dates
+    temporal_data = compute_temporal_data(zones, assignments_path, temporal_dates)
 
     return {
         'name': name,
@@ -276,6 +458,7 @@ def load_brand_data(name, slug, output_dir, radius=5):
         'radius': radius,
         'archive_dates': archive_dates,
         'temporal_data': temporal_data,
+        'sample_info': sample_info,
     }
 
 
@@ -473,7 +656,13 @@ def compute_hsb_saturation(L, a, b):
 # Thumbnail scanning
 # ---------------------------------------------------------------------------
 
-def scan_thumbnails(thumb_dir, zones, clusters):
+def scan_thumbnails(thumb_dir, zones, clusters, eligible_iids_by_cluster=None):
+    """Walk `thumb_dir` for `{cluster_id}_{instance_id}.jpg` and group by zone.
+
+    If `eligible_iids_by_cluster` is provided as {cluster_id: set(instance_id)},
+    only thumbs whose (cluster_id, instance_id) is in the eligible set are kept.
+    Used by sample mode to restrict thumbs to the recent-archives window.
+    """
     zone_thumbs = {}
     for zi, zone in enumerate(zones):
         cluster_thumbs = []
@@ -482,6 +671,18 @@ def scan_thumbnails(thumb_dir, zones, clusters):
                 continue
             c = clusters[cid]
             files = sorted(glob.glob(os.path.join(thumb_dir, f"{cid}_*.jpg")))
+            if eligible_iids_by_cluster is not None:
+                allowed = eligible_iids_by_cluster.get(cid, set())
+                filtered = []
+                for f in files:
+                    stem = os.path.splitext(os.path.basename(f))[0]
+                    try:
+                        iid = int(stem.split('_', 1)[1])
+                    except (IndexError, ValueError):
+                        continue
+                    if iid in allowed:
+                        filtered.append(f)
+                files = filtered
             if files:
                 lab = (c['lab_l'], c['lab_a'], c['lab_b'])
                 cluster_thumbs.append((lab, [os.path.basename(f) for f in files]))
@@ -2968,10 +3169,63 @@ BRANDS = [
 ]
 
 
+def _copy_sampled_thumbs(brands_data, source_base, dest_base):
+    """For each sampled brand-panel, copy the thumbnails referenced by
+    zone_thumbs from `<source_base>/<slug>/thumbs/` to
+    `<dest_base>/<slug>/thumbs/`. Produces a self-contained bundle whose HTML
+    can be moved anywhere without dragging the full thumbnail store along.
+
+    Wipes each brand's `thumbs/` under `dest_base` before copying so a
+    re-run doesn't leave stale files from a previous invocation.
+    """
+    import shutil
+    total_copied = 0
+    total_missing = 0
+    print()  # spacer before per-brand progress
+    for bd in brands_data:
+        slug = bd['slug']
+        src_dir = os.path.join(source_base, slug, 'thumbs')
+        dst_dir = os.path.join(dest_base, slug, 'thumbs')
+        if os.path.isdir(dst_dir):
+            shutil.rmtree(dst_dir)
+        os.makedirs(dst_dir, exist_ok=True)
+        referenced = set()
+        for thumbs in bd['zone_thumbs'].values():
+            referenced.update(thumbs)
+        print(f"  copying {len(referenced):>5} thumbs for {slug}...",
+              end="", flush=True)
+        copied_here = 0
+        missing_here = 0
+        for fname in referenced:
+            src = os.path.join(src_dir, fname)
+            dst = os.path.join(dst_dir, fname)
+            if os.path.exists(src):
+                shutil.copy2(src, dst)
+                copied_here += 1
+            else:
+                missing_here += 1
+        print(f" done ({copied_here} copied"
+              + (f", {missing_here} missing" if missing_here else "") + ")")
+        total_copied += copied_here
+        total_missing += missing_here
+    return total_copied, total_missing
+
+
 def main():
-    # No brand/gender args — the explorer renders all brand/gender panels in one page.
+    import argparse
+    parser = argparse.ArgumentParser(
+        description='Build the palette explorer (all 10 brand-gender panels).')
+    parser.add_argument(
+        '--recent', type=int, default=None, metavar='N',
+        help='Sample mode: restrict each brand-gender panel to the N most '
+             'recent archives (and copy only the referenced thumbnails into '
+             'outputs/sample_recent<N>/), producing a small hostable bundle.')
+    args, _ = parser.parse_known_args()
+
     base = os.path.dirname(os.path.abspath(__file__))
     output_base = os.path.join(base, 'outputs')
+    recent_n = args.recent
+    sample_mode = recent_n is not None and recent_n > 0
 
     brands_data = []
     for name, slug in BRANDS:
@@ -2979,10 +3233,19 @@ def main():
         if not os.path.isdir(brand_dir):
             print(f"  WARNING: {brand_dir} not found, skipping {name}")
             continue
-        bd = load_brand_data(name, slug, brand_dir, radius=5)
+        bd = load_brand_data(name, slug, brand_dir, radius=5, recent_n=recent_n)
         brands_data.append(bd)
-        print(f"  {name}: {len(bd['clusters'])} clusters, {len(bd['zones'])} zones, "
-              f"baseline freq={bd['baseline']['baseline_freq_pct']:.1f}%")
+        info = bd.get('sample_info')
+        if info:
+            date_lo, date_hi = info['archive_date_range']
+            print(f"  {name}: {len(bd['zones'])} zones kept "
+                  f"(of {len(bd['clusters'])} clusters), "
+                  f"baseline freq={bd['baseline']['baseline_freq_pct']:.1f}%  "
+                  f"[sample: {info['n_products_sampled']} products from archives "
+                  f"{info['recent_archive_ids']} ({date_lo}..{date_hi})]")
+        else:
+            print(f"  {name}: {len(bd['clusters'])} clusters, {len(bd['zones'])} zones, "
+                  f"baseline freq={bd['baseline']['baseline_freq_pct']:.1f}%")
 
     if not brands_data:
         print("ERROR: No brand data found. Run consolidate-colors + assign-zones first.")
@@ -3002,8 +3265,27 @@ def main():
     global_depth_max = math.ceil(global_depth_max)
     global_price_max = math.ceil(global_price_max)
 
-    output_path = os.path.join(output_base, 'palette_explorer.html')
-    generate_multi_brand_preview(output_path, brands_data, global_freq_max, global_depth_max, global_price_max)
+    if sample_mode:
+        import shutil
+        sample_dir = os.path.join(output_base, f'sample_recent{recent_n}')
+        # Wipe any previous sample so re-runs never see stale HTML or thumbs.
+        if os.path.isdir(sample_dir):
+            shutil.rmtree(sample_dir)
+        os.makedirs(sample_dir, exist_ok=True)
+        output_path = os.path.join(sample_dir, 'palette_explorer.html')
+    else:
+        output_path = os.path.join(output_base, 'palette_explorer.html')
+
+    generate_multi_brand_preview(output_path, brands_data,
+                                  global_freq_max, global_depth_max, global_price_max)
+
+    if sample_mode:
+        copied, missing = _copy_sampled_thumbs(brands_data, output_base, sample_dir)
+        print(f"\nSample bundle written to: {sample_dir}")
+        print(f"  {copied} thumbnail(s) copied"
+              + (f", {missing} referenced but not found on disk" if missing else "")
+              + ".")
+        print("  This directory is self-contained and can be uploaded to any static host.")
 
 
 if __name__ == '__main__':

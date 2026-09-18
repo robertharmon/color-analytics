@@ -14,15 +14,14 @@ consumes. For a brand/gender segment it:
    fastcluster complete-linkage agglomerative clustering (diameter <= CLUSTER_THRESHOLD
    ΔE00), so every product in a cluster is within threshold of every other.
 
-Note (S137, 2026-08-31): the primary linkage call at line ~207 was migrated from
-scipy.cluster.hierarchy.linkage to fastcluster.linkage — mirrors the same change
-in production/build_ciede2000_clusters.py (old code). scipy internally up-casts a
-float32 condensed matrix to float64 (~26 GB copy at n=84k), OOM-killing the
-container on 32 GB hosts; fastcluster runs natively in float32. Both codebases
-must match for Phase 5.6's consolidate-colors parity diff to be meaningful.
-Other new-code linkage sites (assign_zones, build_zones, review_cluster_quality)
-stay on scipy — they either need optimal_ordering=True (fastcluster lacks it) or
-operate on small centroid inputs where the up-cast is negligible.
+Note on linkage backend: the primary linkage call at line ~200 uses
+fastcluster.linkage rather than scipy.cluster.hierarchy.linkage. scipy internally
+up-casts a float32 condensed matrix to float64 (~26 GB copy at n=84k dominant
+products), OOM-killing the container on 32 GB hosts; fastcluster runs natively
+in float32. Other linkage sites in this repo (assign_zones, build_zones,
+review_cluster_quality) stay on scipy — they either need optimal_ordering=True
+(fastcluster lacks it) or operate on small centroid inputs where the up-cast is
+negligible.
 4. Computes a weighted LAB centroid per cluster (+ RGB, hex, hue).
 
 This is the COMPUTE/STRUCTURE half. It is READ-ONLY on the database and writes
@@ -57,19 +56,18 @@ BRAND_DEFAULT = 'nike'
 GENDER_DEFAULT = 'mens'
 CLUSTER_THRESHOLD = 8          # CIEDE2000 complete-linkage diameter
 
-# S137 (2026-08-31): parity scope limited to first N archives per brand.
-# Fastcluster complete-linkage has O(N^2) working memory beyond the input, so
-# at Nike Mens ~52 archives (84k dominant products, 3.5B pairs) peak memory is
-# ~41 GB, exceeding a 24 GB WSL cap even with float32 pairwise storage. Scoping
-# to first 35 archives brings n down to ~55k, peak to ~15 GB, fits in RAM.
-# THIS CONSTANT MUST MATCH production/build_ciede2000_clusters.py for Phase 5.6
-# (consolidate-colors) parity diffs to be meaningful. Only applies to CIEDE-derived
-# analyses; earlier Phase 2.4 cells (archetypes, distribution tables, coverage)
-# use all archives; baseline is intentionally asymmetric across cells.
-# Full rationale: documentation/Session137_20260831_ciede2000_float32_fastcluster_migration.md
-PARITY_ARCHIVE_LIMIT = 35
+# Memory note: fastcluster complete-linkage has O(N^2) working memory beyond the
+# input. At Nike Mens ~52 archives (~84k dominant products, 3.5B pairs) peak
+# memory is ~41 GB, exceeding a 24 GB WSL cap even with float32 pairwise storage.
+# Capping to ~35 archives per brand brings n down to ~55k and peak to ~15 GB, which
+# fits comfortably. Pass `archive_limit` to `load_brand_data` / `build_clusters`
+# (or `--archive-limit N` on `consolidate-colors`) when you need that safety net.
+# By default no cap is applied — the flagship's `consolidate-colors` run uses every
+# archive the DB has.
 
-QUERY = """
+# When archive_limit is None the WHERE clause is omitted; when it's an int the
+# clause is spliced in and the value is passed as a query parameter.
+QUERY_BASE = """
     SELECT
         c.instance_id_ref,
         c.archive_id_ref,
@@ -84,8 +82,11 @@ QUERY = """
     FROM cluster_fpyolo11l241114_kmeans250218 c
     JOIN archive a ON c.archive_id_ref = a.archive_id
     JOIN instance i ON c.instance_id_ref = i.instance_id
+"""
+
+QUERY_WHERE_LIMIT = """
     WHERE c.archive_id_ref IN (
-        SELECT archive_id FROM archive ORDER BY archive_id LIMIT %s
+        SELECT archive_id FROM archive ORDER BY archive_id DESC LIMIT %s
     )
 """
 
@@ -99,15 +100,27 @@ OUTPUT_DIR = os.path.join(
 # DATA LOADING
 # =============================================================================
 
-def load_brand_data(brand):
+def load_brand_data(brand, archive_limit=None):
     """Load cluster + archive + instance data for a single brand.
 
-    S137: filters to first PARITY_ARCHIVE_LIMIT archives per brand.
+    Args:
+        brand: brand DB name (e.g., 'nike')
+        archive_limit: if set, restrict to the N most recent archives per
+            brand (by archive_id DESC). None means use every archive.
     """
-    print(f"  Loading {brand} data from database (scope: first {PARITY_ARCHIVE_LIMIT} archives)...")
+    if archive_limit is None:
+        print(f"  Loading {brand} data from database (scope: all archives)...")
+        query = QUERY_BASE
+        params = ()
+    else:
+        print(f"  Loading {brand} data from database "
+              f"(scope: {archive_limit} most recent archives)...")
+        query = QUERY_BASE + QUERY_WHERE_LIMIT
+        params = (archive_limit,)
+
     conn, cur = connect_to_db(brand)
     try:
-        cur.execute(QUERY, (PARITY_ARCHIVE_LIMIT,))
+        cur.execute(query, params)
         rows = cur.fetchall()
         df = pd.DataFrame(rows, columns=[
             'instance_id', 'archive_id', 'lab_l', 'lab_a', 'lab_b',
@@ -223,7 +236,7 @@ def cluster_ciede2000_agglomerative(lab_array, use_gpu):
 
     print(f"\n  Computing CIEDE2000 pairwise distances for {N:,} products...")
     n_pairs = N * (N - 1) // 2
-    condensed_gb = n_pairs * 4 / (1024 ** 3)  # float32 = 4 bytes/pair (S137)
+    condensed_gb = n_pairs * 4 / (1024 ** 3)  # float32 = 4 bytes/pair
     print(f"    {n_pairs:,} pairs ({condensed_gb:.2f} GB condensed, float32)")
 
     t0 = time.time()
@@ -315,8 +328,15 @@ def compute_cluster_centroids(dominant_df, labels, n_clusters):
 # ORCHESTRATION + EXPORT
 # =============================================================================
 
-def build_clusters(brand, gender, use_gpu=None):
+def build_clusters(brand, gender, use_gpu=None, archive_limit=None):
     """Run the full clustering pipeline in-memory (no file writes).
+
+    Args:
+        brand: brand DB name (e.g., 'nike')
+        gender: 'mens' or 'womens'
+        use_gpu: force GPU on/off; None auto-detects
+        archive_limit: if set, restrict to the N most recent archives per brand;
+            None means use every archive (default).
 
     Returns:
         (dominant_df, labels, n_clusters, centroids_df, timings)
@@ -325,7 +345,7 @@ def build_clusters(brand, gender, use_gpu=None):
         use_gpu, device_info = detect_gpu()
         print(f"  GPU: {device_info}")
 
-    cluster_df = load_brand_data(brand)
+    cluster_df = load_brand_data(brand, archive_limit=archive_limit)
     cluster_df = prepare_data(cluster_df, gender)
 
     dominant_df = compute_dominant_clusters(cluster_df)

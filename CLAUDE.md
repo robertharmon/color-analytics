@@ -69,6 +69,20 @@ When adding a new writer, follow the same pattern: `db.connect_to_db(brand, read
 
 Function names, filenames, and CLI verbs are free to rename per the CONVENTIONS.md rubric.
 
+## Cluster-ID coherence (invariant, unenforced)
+
+For each `palette_explorer/outputs/<brand>_<gender>/` directory, `cluster_zones.json` and `cluster_summary.csv` must have been generated in the same pipeline run. Both reference clusters by numeric ID (1..N). Every run of `consolidate-colors` re-numbers clusters — the CIEDE2000 agglomerative algorithm's output IDs are stable within a run but not across runs.
+
+If you re-run `consolidate-colors` for a brand-gender, its `cluster_zones.json` is now stale (points at the old ID numbering). The flagship (`palette-explorer`) will silently render nonsense zones: e.g., a "pink" zone containing a pink cluster and a blue-gray cluster because they happened to share IDs 292 and 372 in different runs.
+
+**When re-running `consolidate-colors`, always also:**
+- **Nike Mens** (manually zoned via `build-zones`): either re-do the manual labeling, or swap in `auto_cluster_zones.json` (produced by `assign-zones` self-validation — RF trained on the OLD manual zones + old centroids, re-applied to new IDs).
+- **The 9 other brand-genders** (RF-propagated): re-run `assign-zones <brand> --gender <g>` — it retrains from Nike Mens' zones and re-labels this brand's clusters at their new IDs.
+
+**When copying zone files across environments** (e.g., byte-copying `cluster_zones.json` from museum to this repo — how the misalignment happened once, S141 → S145): also copy the matching `cluster_summary.csv`, OR treat the zones as invalidated and re-run `assign-zones` in the destination.
+
+No runtime enforcement of this invariant exists yet. A cheap safeguard would be hashing `cluster_summary.csv` at write time, embedding the hash in `cluster_zones.json`, and refusing to render if they don't match. Not built.
+
 ## Session documentation
 
 New repo, so session numbering starts fresh at **Session 001**. Museum session docs (156 of them) are historical reference only — cross-link when relevant but don't renumber them.

@@ -4,7 +4,7 @@ A computer-vision and statistical pipeline for extracting and analyzing color tr
 
 This pipeline produces four deliverables. The flagship, an interactive [Palette Explorer](TODO-palette-explorer-url), has a live demo you can explore.
 
-To understand what each deliverable is for, how it's built, and the overall structure of this project, see [Data Flow & Usage — Operator's Reference](TODO-operator-reference-url) — every stage is diagrammed and every command documented.
+To understand what each deliverable is for, how it's built, and the overall structure of this project, see [Data Flow & Usage — Operator's Reference](https://robertharmon.github.io/color-analytics/) — every stage is diagrammed and every command documented.
 
 To learn more about why this project exists, what it aims to investigate, and the technical hurdles encountered during development, see the [project retrospective](TODO-retrospective-url).
 

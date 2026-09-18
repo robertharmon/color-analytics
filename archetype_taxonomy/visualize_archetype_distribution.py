@@ -662,9 +662,8 @@ def generate_html(df: pd.DataFrame, output_path: str):
 # MAIN
 # ============================================================================
 
-def main(brand=None):
-    # `brand` accepted for CLI uniformity but ignored — the distribution grid
-    # covers all brands/genders.
+def main():
+    # No brand/gender args — the distribution grid covers all brands/genders.
     parser = argparse.ArgumentParser(
         description="Generate archetype distribution tables as HTML (READ-ONLY, all products)"
     )

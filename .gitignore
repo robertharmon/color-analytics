@@ -32,7 +32,9 @@ schema.sql
 outputs/
 
 # --- Data store (raw + segmented images, large / external) ---
-images/
+# Anchored to repo root so it only matches the top-level product-image store,
+# not sibling asset dirs like `palette_explorer/images/` (guide-modal SVGs).
+/images/
 
 # --- Model weights (large, downloaded/trained separately) ---
 data_prep/weights/

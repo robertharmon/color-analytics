@@ -167,11 +167,10 @@ def create_combined_histogram_figure(all_coverages):
     return fig
 
 
-def main(brand=None):
+def main():
     """
     Compute coverage distributions across all brands and render the histogram
-    grid. `brand` is accepted for CLI uniformity but ignored — the figure is a
-    5-brand comparison grid.
+    grid. No brand/gender args — the figure is a 5-brand comparison grid.
     """
     print("Computing coverage distributions across all brands...")
     all_coverages, _ = compute_coverages()

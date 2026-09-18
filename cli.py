@@ -47,8 +47,8 @@ REGISTRY = {
 
     # --- Drift: has a brand's color palette shifted over time? ---
     'downsample':      ('drift.downsample:run_downsample', 'Downsample clusters to 1900/archive (weighted k-means)', 'Drift', True),
-    'compute-drift':   ('drift.drift:run_drift', 'Sinkhorn drift distance between archives', 'Drift', True),
-    'visualize-drift': ('drift.visualize_drift:main', 'Multi-brand drift comparison chart -> drift_comparison.html', 'Drift', False),
+    'compute-drift':   ('drift.drift:run_drift', 'Sinkhorn drift distance vs earliest archive, per query (idempotent)', 'Drift', True),
+    'visualize-drift': ('drift.visualize_drift:main', 'Per-gender drift comparison charts -> drift_comparison_<gender>.html', 'Drift', False),
 
     # --- Coverage ---
     'visualize-coverage': ('coverage.visualize_coverage:main', 'Coverage distribution grid -> coverage_distribution.html', 'Coverage', False),
@@ -143,7 +143,13 @@ def _print_command_help(command):
 
 
 def _dispatch(command, rest):
-    """Import the target and call it, adapting to its signature."""
+    """Import the target and call it, adapting to its signature.
+
+    Rejects a brand-token or --gender flag when the target function does not
+    accept it — so `palette-explorer nike --gender mens` errors out instead of
+    silently ignoring the args. Other extra args are still exposed via sys.argv
+    for scripts that parse their own argparse.
+    """
     dotted, _help, _group, brand_required = REGISTRY[command]
 
     if any(a in ('-h', '--help') for a in rest):
@@ -151,16 +157,24 @@ def _dispatch(command, rest):
         return
 
     func = _resolve(dotted)
-
-    # Expose extra args to scripts that parse their own argv.
-    sys.argv = [f'cli.py {command}'] + rest
-
     params = inspect.signature(func).parameters
+
     brand = next((a for a in rest if not a.startswith('-')), None)
+    gender_flag_present = '--gender' in rest
 
     if brand_required and brand not in BRANDS:
         print(f"Command '{command}' requires a brand argument: {', '.join(BRANDS)}")
         sys.exit(2)
+
+    if brand in BRANDS and 'brand' not in params:
+        print(f"Command '{command}' does not take a brand argument (got {brand!r}).")
+        sys.exit(2)
+    if gender_flag_present and 'gender' not in params:
+        print(f"Command '{command}' does not take a --gender argument.")
+        sys.exit(2)
+
+    # Expose extra args to scripts that parse their own argv.
+    sys.argv = [f'cli.py {command}'] + rest
 
     kwargs = {}
     if 'brand' in params:

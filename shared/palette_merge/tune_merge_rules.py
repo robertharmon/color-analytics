@@ -822,7 +822,7 @@ def export_pairwise_csv(pairs_df, output_dir):
 # 1i. Entry point
 # ---------------------------------------------------------------------------
 
-def main(brand=None):
+def main():
     parser = argparse.ArgumentParser(
         description='Score the live merge rule against labeled data and propose thresholds.')
     parser.add_argument('--input', required=True,

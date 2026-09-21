@@ -2,7 +2,7 @@
 
 A computer-vision and statistical pipeline for extracting and analyzing color trends in athletic apparel across major brands. The system processes raw product photos, isolates garments, reduces them to dominant colors, and outputs interactive deliverables detailing brand palette usage, temporal shifts, and discount correlations.
 
-This pipeline produces four deliverables. The flagship, an interactive [Palette Explorer](TODO-palette-explorer-url), has a live demo you can explore.
+This pipeline produces four deliverables. The flagship, an interactive [Palette Explorer](https://robertharmon.github.io/ColorAnalytics_WebViewer/), has a live demo you can explore.
 
 To understand what each deliverable is for, how it's built, and the overall structure of this project, see [Data Flow & Usage — Operator's Reference](https://robertharmon.github.io/color-analytics/) — every stage is diagrammed and every command documented.
 

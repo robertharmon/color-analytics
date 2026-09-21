@@ -33,6 +33,58 @@ except ImportError:
     _HAS_DB = False
 
 
+def _compute_dataset_totals(brand_dbs=('nike', 'adidas', 'puma', 'lulu', 'ua')):
+    """Sum products and count distinct year-months across every brand DB.
+
+    Used to keep the guide-modal "How much data is there?" slide honest at
+    build time — the numbers there should reflect the DB, not the stale
+    flagship snapshot. Returns None on any DB failure so the caller can
+    fall back to a static string without breaking the build.
+    """
+    if not _HAS_DB:
+        return None
+    total_products = 0
+    year_months = set()
+    try:
+        for brand in brand_dbs:
+            conn, cur = _connect_to_db(brand)
+            try:
+                cur.execute("SELECT COUNT(*) FROM instance;")
+                total_products += cur.fetchone()[0]
+                cur.execute(
+                    "SELECT DISTINCT EXTRACT(YEAR FROM received)::int, "
+                    "EXTRACT(MONTH FROM received)::int FROM archive "
+                    "WHERE received IS NOT NULL;"
+                )
+                for y, m in cur.fetchall():
+                    year_months.add((y, m))
+            finally:
+                cur.close()
+                conn.close()
+    except Exception as e:
+        print(f"  WARNING: dataset-totals query failed ({e}); "
+              "guide slide will use fallback text.")
+        return None
+    return {'n_months': len(year_months), 'n_products': total_products}
+
+
+def _format_dataset_totals_subtitle(totals):
+    """Format the guide-slide subtitle from _compute_dataset_totals() output.
+    Falls back to a static string when totals is None."""
+    if not totals:
+        return "Currently, 16 months, or around 200,000 products!"
+    n_months = totals['n_months']
+    n_products = totals['n_products']
+    # Round products down to nearest 10k so "around N" reads honest.
+    if n_products >= 10000:
+        rounded = (n_products // 10000) * 10000
+    elif n_products >= 1000:
+        rounded = (n_products // 1000) * 1000
+    else:
+        rounded = n_products
+    return f"Currently, {n_months} months, or around {rounded:,} products!"
+
+
 # ---------------------------------------------------------------------------
 # Guide slide SVGs
 # ---------------------------------------------------------------------------
@@ -127,7 +179,13 @@ def load_zones(path):
     # this file is stale and the flagship will render nonsense zones. See
     # CLAUDE.md § "Cluster-ID coherence" for the recovery playbook.
     with open(path, 'r') as f:
-        return json.load(f)['zones']
+        zones = json.load(f)['zones']
+    # Display rename: source JSON labels zones as "Group N" (historical); the
+    # UI presents them as "Zone N".
+    for z in zones:
+        if isinstance(z.get('name'), str) and z['name'].startswith('Group '):
+            z['name'] = 'Zone ' + z['name'][len('Group '):]
+    return zones
 
 
 def load_run_metadata(path):
@@ -718,7 +776,7 @@ def scan_thumbnails(thumb_dir, zones, clusters, eligible_iids_by_cluster=None):
 TRACK_WIDTH = 800
 BASE_SWATCH = 36
 MAX_SIZE = 600
-NEUTRAL_HSB = 5.0
+NEUTRAL_HSB = 6.0
 SATURATED_HSB = 50.0
 
 
@@ -878,8 +936,13 @@ def render_brand_swatches(slug, all_swatches, cat_labels, centroids):
 # Multi-brand HTML generator
 # ---------------------------------------------------------------------------
 
-def generate_multi_brand_preview(output_path, brands_data, global_freq_max, global_depth_max, global_price_max):
-    """Generate multi-brand side-by-side comparison HTML."""
+def generate_multi_brand_preview(output_path, brands_data, global_freq_max, global_depth_max, global_price_max, dataset_totals=None):
+    """Generate multi-brand side-by-side comparison HTML.
+
+    `dataset_totals` — optional dict from _compute_dataset_totals(), used to
+    fill the guide-modal "How much data is there?" slide with live numbers.
+    None → falls back to a static string.
+    """
 
     # Pre-compute layouts per brand
     brand_layouts = {}
@@ -1282,6 +1345,7 @@ body {{ background: #1a1a1a; color: #ddd; font-family: system-ui, sans-serif; ma
     icon_close = _embed_icon_svg('icon-close')
     icon_prev = _embed_icon_svg('icon-prev')
     icon_next = _embed_icon_svg('icon-next_1')
+    data_subtitle = _format_dataset_totals_subtitle(dataset_totals)
     guide_html = (
 '<div class="guide-overlay" id="guideOverlay" onclick="if(event.target===this)closeGuide()">\n'
 '  <div class="guide-modal">\n'
@@ -1307,9 +1371,9 @@ body {{ background: #1a1a1a; color: #ddd; font-family: system-ui, sans-serif; ma
 '      <!-- Slide 3: How much data is there? -->\n'
 '      <div class="help-section">\n'
 '        <h1 class="guide-title">How much data is there?</h1>\n'
-'        <p class="guide-subtitle">Currently, 16 months, or around 200,000 products!</p>\n'
+'        <p class="guide-subtitle">' + data_subtitle + '</p>\n'
 '        <div class="guide-graphic fade-bottom">' + svg_3 + '</div>\n'
-'        <p class="guide-body">Use the <span class="guide-highlight">Brands</span> tab to toggle which brand and gender segments appear on screen.</p>\n'
+'        <p class="guide-body">Use the <span class="guide-highlight">Data</span> tab to toggle which brand and gender segments appear on screen.</p>\n'
 '      </div>\n'
 '\n'
 '      <!-- Slide 4: What&rsquo;s the point? -->\n'
@@ -1377,7 +1441,7 @@ body {{ background: #1a1a1a; color: #ddd; font-family: system-ui, sans-serif; ma
         <div class="ctrl-panel-row-label">Zone sizing</div>
         <div style="display:flex;align-items:center;gap:10px;">
           <label class="sat-toggle"><input type="checkbox" id="globalScaleToggle" checked onchange="toggleGlobalScale(this.checked)"><span class="slider"></span></label>
-          <span id="globalScaleLabel" style="font-size:11px;color:#888;">Cross-brand zone sizing</span>
+          <span id="globalScaleLabel" style="font-size:11px;color:#888;">Absolute size (comparable across brands)</span>
         </div>
       </div>
       </div>
@@ -1425,7 +1489,7 @@ body {{ background: #1a1a1a; color: #ddd; font-family: system-ui, sans-serif; ma
   <div class="sidebar-section collapsed">
     <div class="ctrl-panel" id="ctrl-panel-brands">
       <div class="ctrl-panel-header" onclick="toggleSection(this)">
-        <div class="ctrl-panel-label">Brands<span class="ctrl-panel-chevron">&#9660;</span></div>
+        <div class="ctrl-panel-label">Data<span class="ctrl-panel-chevron">&#9660;</span></div>
       </div>
       <div class="ctrl-panel-body">
       <div class="ctrl-panel-row">
@@ -2082,6 +2146,12 @@ function recomputeAllLayouts() {{
 // --- Zone sizing toggle ---
 function toggleGlobalScale(enabled) {{
     useGlobalScale = enabled;
+    var lbl = document.getElementById('globalScaleLabel');
+    if (lbl) {{
+        lbl.textContent = enabled
+            ? 'Absolute size (comparable across brands)'
+            : 'Relative to each brand';
+    }}
     recomputeAllLayouts();
 }}
 
@@ -3170,33 +3240,41 @@ BRANDS = [
 
 
 def _copy_sampled_thumbs(brands_data, source_base, dest_base):
-    """For each sampled brand-panel, copy the thumbnails referenced by
-    zone_thumbs from `<source_base>/<slug>/thumbs/` to
-    `<dest_base>/<slug>/thumbs/`. Produces a self-contained bundle whose HTML
-    can be moved anywhere without dragging the full thumbnail store along.
+    """For each sampled brand-panel, sync thumbnails referenced by zone_thumbs
+    from `<source_base>/<slug>/thumbs/` to `<dest_base>/<slug>/thumbs/`.
+    Produces a self-contained bundle whose HTML can be moved anywhere without
+    dragging the full thumbnail store along.
 
-    Wipes each brand's `thumbs/` under `dest_base` before copying so a
-    re-run doesn't leave stale files from a previous invocation.
+    Incremental: files already present in `dst_dir` are left alone; only new
+    referenced thumbs are copied. Files in `dst_dir` that the current sample
+    no longer references are REPORTED but never deleted — the user removes
+    them manually if desired.
     """
     import shutil
     total_copied = 0
+    total_kept = 0
     total_missing = 0
+    orphans_by_brand = {}
     print()  # spacer before per-brand progress
     for bd in brands_data:
         slug = bd['slug']
         src_dir = os.path.join(source_base, slug, 'thumbs')
         dst_dir = os.path.join(dest_base, slug, 'thumbs')
-        if os.path.isdir(dst_dir):
-            shutil.rmtree(dst_dir)
         os.makedirs(dst_dir, exist_ok=True)
         referenced = set()
         for thumbs in bd['zone_thumbs'].values():
             referenced.update(thumbs)
-        print(f"  copying {len(referenced):>5} thumbs for {slug}...",
+        existing = set(os.listdir(dst_dir)) if os.path.isdir(dst_dir) else set()
+
+        orphans = existing - referenced
+        to_copy = referenced - existing
+        kept_here = len(referenced & existing)
+
+        print(f"  syncing {len(referenced):>5} thumbs for {slug}...",
               end="", flush=True)
         copied_here = 0
         missing_here = 0
-        for fname in referenced:
+        for fname in to_copy:
             src = os.path.join(src_dir, fname)
             dst = os.path.join(dst_dir, fname)
             if os.path.exists(src):
@@ -3204,10 +3282,28 @@ def _copy_sampled_thumbs(brands_data, source_base, dest_base):
                 copied_here += 1
             else:
                 missing_here += 1
-        print(f" done ({copied_here} copied"
-              + (f", {missing_here} missing" if missing_here else "") + ")")
+        parts = [f"{kept_here} kept", f"{copied_here} copied"]
+        if orphans:
+            parts.append(f"{len(orphans)} orphan(s)")
+        if missing_here:
+            parts.append(f"{missing_here} missing")
+        print(f" done ({', '.join(parts)})")
         total_copied += copied_here
+        total_kept += kept_here
         total_missing += missing_here
+        if orphans:
+            orphans_by_brand[slug] = sorted(orphans)
+
+    if orphans_by_brand:
+        print()
+        print("Orphaned thumbnails detected (present in the sample bundle but "
+              "no longer referenced by the current sample). Not deleted "
+              "automatically -- remove manually if desired:")
+        for slug, files in orphans_by_brand.items():
+            dst_dir = os.path.join(dest_base, slug, 'thumbs')
+            print(f"  {dst_dir}  ({len(files)} file(s)):")
+            for fname in files:
+                print(f"    {fname}")
     return total_copied, total_missing
 
 
@@ -3266,18 +3362,23 @@ def main():
     global_price_max = math.ceil(global_price_max)
 
     if sample_mode:
-        import shutil
         sample_dir = os.path.join(output_base, f'sample_recent{recent_n}')
-        # Wipe any previous sample so re-runs never see stale HTML or thumbs.
-        if os.path.isdir(sample_dir):
-            shutil.rmtree(sample_dir)
+        # HTML is unconditionally rewritten; thumbs are sync'd (added/pruned)
+        # incrementally by _copy_sampled_thumbs, so no outer wipe is needed.
         os.makedirs(sample_dir, exist_ok=True)
         output_path = os.path.join(sample_dir, 'palette_explorer.html')
     else:
         output_path = os.path.join(output_base, 'palette_explorer.html')
 
+    dataset_totals = _compute_dataset_totals()
+    if dataset_totals:
+        print(f"  dataset totals: {dataset_totals['n_months']} months, "
+              f"{dataset_totals['n_products']:,} products "
+              "(guide slide will reflect these).")
+
     generate_multi_brand_preview(output_path, brands_data,
-                                  global_freq_max, global_depth_max, global_price_max)
+                                  global_freq_max, global_depth_max, global_price_max,
+                                  dataset_totals=dataset_totals)
 
     if sample_mode:
         copied, missing = _copy_sampled_thumbs(brands_data, output_base, sample_dir)

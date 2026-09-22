@@ -1,4 +1,4 @@
-# Producing `docs/index.html`
+# Producing `docs/operator-reference/index.html`
 
 The doc's source (`README preview v4.dc.html`) stores its content as JavaScript
 data structures and renders Mermaid diagrams in-browser. Neither that file nor a
@@ -20,7 +20,7 @@ directly editable.
    draw (about a second).
 2. DevTools → Console.
 3. Paste the snippet, press Enter.
-4. `index.html` downloads. Move it to `color-analytics/docs/index.html`.
+4. `index.html` downloads. Move it to `color-analytics/docs/operator-reference/index.html`.
 
 Re-run whenever the source doc changes.
 
@@ -109,7 +109,7 @@ ${gh.innerHTML}
 ## Editing it afterwards
 
 Prose, command names, tunable descriptions, table cells — all real markup. Grep
-and edit `docs/index.html` directly.
+and edit `docs/operator-reference/index.html` directly.
 
 Diagram *labels* live inside the SVG blobs. To change one, edit the Mermaid
 source in the comment above the diagram, re-render it (any Mermaid renderer,

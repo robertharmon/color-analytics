@@ -54,3 +54,7 @@ data_prep/weights/
 .claude/
 tmpclaude-*-cwd
 nul
+
+# --- Internal-only docs (kept on disk for Claude sessions, not published) ---
+/CLAUDE.md
+/STRUCTURE.md

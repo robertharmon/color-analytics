@@ -608,10 +608,10 @@ def print_reclamation_outlook(brand_dfs, scope_label):
     print()
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[1])
     parser.add_argument('--brand', choices=BRANDS, help="Audit only this brand")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     targets = [args.brand] if args.brand else BRANDS
     all_dfs = []

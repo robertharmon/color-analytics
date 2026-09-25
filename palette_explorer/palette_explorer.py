@@ -3307,7 +3307,7 @@ def _copy_sampled_thumbs(brands_data, source_base, dest_base):
     return total_copied, total_missing
 
 
-def main():
+def main(argv=None):
     import argparse
     parser = argparse.ArgumentParser(
         description='Build the palette explorer (all 10 brand-gender panels).')
@@ -3316,7 +3316,7 @@ def main():
         help='Sample mode: restrict each brand-gender panel to the N most '
              'recent archives (and copy only the referenced thumbnails into '
              'outputs/sample_recent<N>/), producing a small hostable bundle.')
-    args, _ = parser.parse_known_args()
+    args = parser.parse_args(argv)
 
     base = os.path.dirname(os.path.abspath(__file__))
     output_base = os.path.join(base, 'outputs')

@@ -138,7 +138,7 @@ def write_uncovered_csv(rows, path):
             w.writerow([r[0], r[1] or "", r[2] or ""])
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--brand", choices=BRANDS, default=None,
                         help="Run a single brand. If omitted, runs all five.")
@@ -150,7 +150,7 @@ def main():
     parser.add_argument("--max-uncovered", type=int, default=DEFAULT_MAX_UNCOVERED,
                         help=f"Max rows per uncovered CSV (0 = skip CSV). "
                              f"Default: {DEFAULT_MAX_UNCOVERED}.")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     brands = [args.brand] if args.brand else BRANDS
     heraldic_pattern = compile_postgres_pattern(HERALDIC_KEYWORDS)

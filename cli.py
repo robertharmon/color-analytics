@@ -145,10 +145,13 @@ def _print_command_help(command):
 def _dispatch(command, rest):
     """Import the target and call it, adapting to its signature.
 
-    Rejects a brand-token or --gender flag when the target function does not
-    accept it — so `palette-explorer nike --gender mens` errors out instead of
-    silently ignoring the args. Other extra args are still exposed via sys.argv
-    for scripts that parse their own argparse.
+    The dispatcher handles two things that would otherwise be scattered across
+    every target: (1) routes the brand token and --gender flag as kwargs when
+    the target signature accepts them, rejecting them when it does not, and
+    (2) passes the remaining args as `argv=` to targets whose signature accepts
+    it, so their own argparse can validate them. Targets that don't accept
+    `argv` get zero leftover flags — the dispatcher rejects anything that
+    would otherwise be silently ignored.
     """
     dotted, _help, _group, brand_required = REGISTRY[command]
 
@@ -173,14 +176,34 @@ def _dispatch(command, rest):
         print(f"Command '{command}' does not take a --gender argument.")
         sys.exit(2)
 
-    # Expose extra args to scripts that parse their own argv.
-    sys.argv = [f'cli.py {command}'] + rest
+    # Build the argv the target's own argparse will see: strip the brand token
+    # and --gender <val> so the target parser deals only with its own flags.
+    target_argv = []
+    skip_next = False
+    for a in rest:
+        if skip_next:
+            skip_next = False
+            continue
+        if brand is not None and a == brand:
+            continue
+        if a == '--gender':
+            skip_next = True
+            continue
+        target_argv.append(a)
 
     kwargs = {}
     if 'brand' in params:
         kwargs['brand'] = brand
     if 'gender' in params:
         kwargs['gender'] = _extract_gender(rest)
+    if 'argv' in params:
+        kwargs['argv'] = target_argv
+    elif target_argv:
+        # Target has no argparse. A stray --flag here would previously vanish
+        # silently — reject it so typos are visible.
+        print(f"Command '{command}' does not accept extra arguments: "
+              f"{' '.join(target_argv)}")
+        sys.exit(2)
 
     func(**kwargs)
 

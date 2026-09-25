@@ -17,15 +17,7 @@ from typing import Dict, List, Tuple
 import plotly.graph_objects as go
 
 from shared import db
-
-
-def assign_gender(query_str: str):
-    ql = str(query_str).lower()
-    if 'womens' in ql:
-        return 'womens'
-    if 'mens' in ql:
-        return 'mens'
-    return None
+from shared.db import assign_gender
 
 
 def fetch_distances(brand: str) -> Dict[str, List[Tuple]]:

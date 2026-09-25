@@ -590,7 +590,7 @@ def run_sanity():
 # CLI
 # ============================================================================
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Heraldic filter audit tool — three-stage discovery, review, sanity check",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -616,7 +616,7 @@ Re-running `review` resumes from where the last session left off.
     ap = sub.add_parser('all', help='Run scan -> review -> sanity in sequence')
     ap.add_argument('--top', type=int, default=100)
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     if args.cmd == 'scan':
         run_scan()

@@ -68,18 +68,26 @@ def fetch_clusters(cur, archive_id_ref):
 
 
 def fetch_archives_by_query(cur):
-    """Return {query: [(archive_id, received_date), ...]} for archives that have
-    downsampled clusters, sorted earliest-first within each query."""
+    """Return {gender: [(archive_id, received_date), ...]} for archives that have
+    downsampled clusters, sorted earliest-first within each gender bucket.
+
+    Buckets on the normalized gender (see shared.db.assign_gender), not the raw
+    query, so cosmetic query renames like 'mens clothing' -> 'mens' don't split
+    what should be one drift series. Archives whose query normalizes to None
+    (neither mens nor womens) are dropped."""
     cur.execute("""
         SELECT DISTINCT c.archive_id_ref, a.query, a.received::date
         FROM comp_cluster_fpyolo11l241114_kmeans250218 c
         JOIN archive a ON c.archive_id_ref = a.archive_id
-        ORDER BY a.query, a.received;
+        ORDER BY a.received::date;
     """)
-    by_query = defaultdict(list)
+    by_gender = defaultdict(list)
     for archive_id, query, received in cur.fetchall():
-        by_query[query].append((archive_id, received))
-    return dict(by_query)
+        gender = db.assign_gender(query)
+        if gender is None:
+            continue
+        by_gender[gender].append((archive_id, received))
+    return dict(by_gender)
 
 
 def fetch_existing_pairs(cur):
@@ -97,8 +105,9 @@ def _free_gpu():
 
 def run_drift(brand: str):
     """
-    For every query in this brand's archive table, drift each archive against
-    the earliest archive of the same query and write a distance row.
+    For each gender bucket (mens, womens) in this brand's archive table, drift
+    every archive against the earliest archive of the same bucket and write a
+    distance row.
 
     Args:
         brand: Brand name (e.g., 'nike', 'adidas')
@@ -106,20 +115,20 @@ def run_drift(brand: str):
     conn, cur = db.connect_to_db(brand, readonly=False)
 
     try:
-        archives_by_query = fetch_archives_by_query(cur)
+        archives_by_gender = fetch_archives_by_query(cur)
         existing_pairs = fetch_existing_pairs(cur)
 
-        if not archives_by_query:
+        if not archives_by_gender:
             print(f"No downsampled archives found for {brand}. Run 'downsample' first.")
             return
 
-        for query, archives in archives_by_query.items():
+        for gender, archives in archives_by_gender.items():
             if len(archives) < 2:
-                print(f"\n[{query}] only {len(archives)} archive(s); skipping (need >=2).")
+                print(f"\n[{gender}] only {len(archives)} archive(s); skipping (need >=2).")
                 continue
 
             base_id, base_date = archives[0]
-            print(f"\n=== [{query}] baseline archive {base_id} ({base_date}) ===")
+            print(f"\n=== [{gender}] baseline archive {base_id} ({base_date}) ===")
             base_points, base_weights = fetch_clusters(cur, base_id)
 
             for compare_id, compare_date in archives[1:]:

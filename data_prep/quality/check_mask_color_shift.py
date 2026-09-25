@@ -284,14 +284,14 @@ def print_report(all_results):
     print("=" * 70)
 
 
-def main():
+def main(argv=None):
     global MAX_SAMPLES
 
     parser = argparse.ArgumentParser(description="Test ICC profile impact on segmented image colors")
     parser.add_argument("path", help="Archive directory path, or brand name with --scan")
     parser.add_argument("--scan", action="store_true", help="Treat path as brand name, auto-find archive")
     parser.add_argument("--samples", type=int, default=MAX_SAMPLES, help=f"Max images to test (default {MAX_SAMPLES})")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     MAX_SAMPLES = args.samples
 

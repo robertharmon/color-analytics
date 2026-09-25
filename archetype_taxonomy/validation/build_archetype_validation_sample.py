@@ -932,7 +932,7 @@ def _build_pair_features_sample(df, output_dir, images_dir, host_images_dir,
     return output_path
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Generate stratified validation sample balanced by archetype and brand (READ-ONLY)"
     )
@@ -959,7 +959,7 @@ def main():
     parser.add_argument('--multi-bal', type=int, default=DEFAULT_ARCHETYPE_TARGETS['MULTI_BAL'],
                         help="Sample size for MULTI_BAL archetype")
 
-    args, _ = parser.parse_known_args()
+    args = parser.parse_args(argv)
 
     archetype_targets = {
         'MONO': args.mono,

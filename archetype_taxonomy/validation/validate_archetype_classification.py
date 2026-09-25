@@ -218,13 +218,13 @@ def print_report(df, resolved, n_uncertain, unusable, out_lines):
     emit("=" * 70)
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Score archetype classification accuracy from a labeled export (READ-ONLY)")
     parser.add_argument('--input', default=DEFAULT_INPUT_CSV,
                         help="Path to the exported validation_results CSV")
     parser.add_argument('--output-dir', default=DEFAULT_OUTPUT_DIR)
-    args, _ = parser.parse_known_args()
+    args = parser.parse_args(argv)
 
     if not os.path.exists(args.input):
         print(f"ERROR: results CSV not found: {args.input}")

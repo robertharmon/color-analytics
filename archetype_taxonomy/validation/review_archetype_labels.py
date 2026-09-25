@@ -77,7 +77,7 @@ def _params_match(meta, strata, random_seed, archetype_targets):
     return True, ""
 
 
-def main(brand=None):
+def main(brand=None, argv=None):
     parser = argparse.ArgumentParser(
         description="Classify (if needed) + sample + render the archetype/merge labeling tool"
     )
@@ -105,7 +105,7 @@ def main(brand=None):
     parser.add_argument('--candidate-pool', type=int, default=5000)
     parser.add_argument('--boundary-band', type=float, default=None)
 
-    args, _ = parser.parse_known_args()
+    args = parser.parse_args(argv)
 
     archetype_targets = {
         'MONO': args.mono, 'DOM_ACC': args.dom_acc, 'DUAL_BAL': args.dual_bal,

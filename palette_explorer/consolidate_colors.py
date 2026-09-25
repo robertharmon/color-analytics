@@ -268,16 +268,16 @@ def export_results(results_df, centroids_df, dominant_df, labels, baseline,
 # MAIN
 # =============================================================================
 
-def main(brand=None, gender=None, archive_limit=None):
+def main(brand=None, gender=None, archive_limit=None, argv=None):
     # Also accept --archive-limit N when invoked through the CLI dispatcher,
-    # which routes brand/gender as kwargs but leaves other flags in sys.argv.
+    # which routes brand/gender as kwargs and passes remaining flags as argv.
     import argparse
     _p = argparse.ArgumentParser(add_help=False)
     _p.add_argument('--archive-limit', type=int, default=None,
                     help='Cap the DB read to the N most recent archives per brand '
                          '(default: use all archives). Guard against >20 GB memory '
                          'in the fastcluster linkage step for very large brands.')
-    _known, _ = _p.parse_known_args()
+    _known = _p.parse_args(argv)
     if _known.archive_limit is not None:
         archive_limit = _known.archive_limit
 

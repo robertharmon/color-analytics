@@ -1876,7 +1876,7 @@ def build_validator_html(input_json=DEFAULT_INPUT_JSON, output_dir=DEFAULT_OUTPU
 # MAIN
 # ============================================================================
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Generate HTML validation tool with HSB metadata + merge labeling (READ-ONLY)"
     )
@@ -1885,7 +1885,7 @@ def main():
     parser.add_argument('--output-dir', default=DEFAULT_OUTPUT_DIR,
                         help="Output directory for HTML file")
 
-    args, _ = parser.parse_known_args()
+    args = parser.parse_args(argv)
 
     print("=" * 70)
     print("Validation HTML Generator (HSB Production)")

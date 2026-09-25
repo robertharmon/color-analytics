@@ -822,7 +822,7 @@ def export_pairwise_csv(pairs_df, output_dir):
 # 1i. Entry point
 # ---------------------------------------------------------------------------
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(
         description='Score the live merge rule against labeled data and propose thresholds.')
     parser.add_argument('--input', required=True,
@@ -838,7 +838,7 @@ def main():
                              '(reproduce pre-2026-07 numbers only)')
     parser.add_argument('--output-dir', default=DEFAULT_OUTPUT_DIR,
                         help=f'Output directory (default: {DEFAULT_OUTPUT_DIR})')
-    args, _ = parser.parse_known_args()
+    args = parser.parse_args(argv)
 
     rule_fn = legacy_replica_should_merge if args.legacy_replica else should_merge_hue_based
     if args.legacy_replica:

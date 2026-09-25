@@ -662,7 +662,7 @@ def generate_html(df: pd.DataFrame, output_path: str):
 # MAIN
 # ============================================================================
 
-def main():
+def main(argv=None):
     # No brand/gender args — the distribution grid covers all brands/genders.
     parser = argparse.ArgumentParser(
         description="Generate archetype distribution tables as HTML (READ-ONLY, all products)"
@@ -672,7 +672,7 @@ def main():
     parser.add_argument('--output-dir', default=DEFAULT_OUTPUT_DIR,
                         help="Output directory for HTML file")
 
-    args, _ = parser.parse_known_args()
+    args = parser.parse_args(argv)
 
     # Check input file
     if not os.path.exists(args.input_csv):

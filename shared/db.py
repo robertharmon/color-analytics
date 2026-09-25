@@ -123,6 +123,22 @@ def get_unprocessed_archives(cur, dest_table: str) -> list:
     return [r[0] for r in rows]
 
 
+def assign_gender(query_str) -> str | None:
+    """Normalize an archive's `query` string to a canonical gender bucket.
+
+    Retailer queries have shifted over time (e.g. 'mens clothing' -> 'mens')
+    without changing what's actually scraped. Bucketing on the raw query would
+    treat those as separate series; bucketing on this normalized value keeps
+    them together. Returns 'mens', 'womens', or None (unknown).
+    """
+    ql = str(query_str).lower()
+    if 'womens' in ql:
+        return 'womens'
+    if 'mens' in ql:
+        return 'mens'
+    return None
+
+
 def map_archive_dirs(brand: str, search_dir: str) -> dict:
     """
     Map archive IDs to their corresponding folder paths by parsing folder names.

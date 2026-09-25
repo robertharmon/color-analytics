@@ -775,7 +775,7 @@ gotoFirstUnlabeled();
 # CLI
 # ============================================================================
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Heraldic filter validation tool — three-stage labeling workflow",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -803,7 +803,7 @@ Typical flow:
     sub.add_parser('html', help='Stage 2: generate labeler HTML from sample.json')
     sub.add_parser('analyze', help='Stage 3: compute precision/recall from labels.json')
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     if args.cmd == 'sample':
         run_sample(args.per_brand, args.images_dir)
